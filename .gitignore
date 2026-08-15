@@ -1,0 +1,10 @@
+# compiled binary
+/tblx
+
+# packaging output
+dist/
+*.rpm
+*.pkg.tar.zst
+
+# misc
+.DS_Store

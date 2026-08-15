@@ -1,0 +1,150 @@
+name: release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build"
+        required: false
+        default: "0.0.0-dev"
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            V="${{ github.ref_name }}"          # e.g. v1.2.0
+          else
+            V="${{ inputs.version }}"
+          fi
+          echo "version=${V#v}" >> "$GITHUB_OUTPUT"
+          echo "building tblx ${V#v}"
+
+  # binaries
+  binaries:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Resolve libtblx from GitHub
+        run: |
+          go mod tidy
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          out="tblx-${{ matrix.goos }}-${{ matrix.goarch }}"
+          go build -trimpath -ldflags "-s -w" -o "$out" ./cmd/tblx
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tblx-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: tblx-${{ matrix.goos }}-${{ matrix.goarch }}
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: tblx-${{ matrix.goos }}-${{ matrix.goarch }}
+
+  # rhel
+  rpm:
+    needs: prepare
+    runs-on: ubuntu-latest
+    container: fedora:41
+    steps:
+      - name: Install build tools
+        run: dnf install -y git rpm-build golang
+      - uses: actions/checkout@v4
+      - name: Build the RPM
+        run: |
+          set -euo pipefail
+          VER="${{ needs.prepare.outputs.version }}"
+
+          # Same treatment the spec applies, done up front so the source
+          # tarball we ship is already buildable without ../libtblx.
+          go mod tidy
+
+          # Stage an rpmbuild tree.
+          mkdir -p ~/rpmbuild/SOURCES ~/rpmbuild/SPECS
+          cp -r . /tmp/tblx-"$VER"
+          rm -rf /tmp/tblx-"$VER"/.git
+          tar czf ~/rpmbuild/SOURCES/tblx-"$VER".tar.gz -C /tmp tblx-"$VER"
+          cp packaging/rpm/tblx.spec ~/rpmbuild/SPECS/
+          sed -i "s/^Version:.*/Version: $VER/" ~/rpmbuild/SPECS/tblx.spec
+
+          rpmbuild -bb ~/rpmbuild/SPECS/tblx.spec
+
+          # Stage everything in the workspace for upload (upload-artifact
+          # does not expand ~).
+          mkdir -p dist
+          cp ~/rpmbuild/RPMS/*/*.rpm dist/
+          cp ~/rpmbuild/SOURCES/tblx-"$VER".tar.gz dist/
+          ls -l dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm
+          path: dist/
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+
+  # archlinux
+  arch:
+    needs: prepare
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install build tools
+        run: pacman -Syu --noconfirm base-devel go git
+      - name: Create unprivileged builder
+        run: |
+          useradd -m builder
+          mkdir /pkg && chown builder /pkg
+      - uses: actions/checkout@v4
+        with:
+          path: tblx-src
+      - name: Stage PKGBUILD
+        run: |
+          VER="${{ needs.prepare.outputs.version }}"
+          cp tblx-src/packaging/arch/PKGBUILD /pkg/
+          sed -i "s/^pkgver=.*/pkgver=$VER/" /pkg/PKGBUILD
+          chown -R builder /pkg
+      - name: makepkg
+        run: runuser -u builder -- bash -c "cd /pkg && makepkg -f --noconfirm"
+      - name: Stage package
+        run: |
+          mkdir -p dist
+          cp /pkg/*.pkg.tar.zst dist/
+          ls -l dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-package
+          path: dist/
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

@@ -1,0 +1,40 @@
+# PKGBUILD for tblx (Tablix) — Arch Linux / Manjaro.
+#
+# Build & install:
+#   cd packaging/arch
+#   makepkg -si
+
+# Maintainer: Tablix maintainers <tblx@example.com>
+pkgname=tblx
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Tablix — binary columnar file format (TBLX) and terminal CLI: CSV in, seekable columns out'
+arch=('x86_64' 'aarch64')
+url='https://github.com/askmehrun/tblx'
+license=('MIT')
+depends=('glibc')
+makedepends=('go>=1.21')
+source=("$url/archive/refs/tags/v$pkgver/$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+	cd "$pkgname-$pkgver"
+	# The repository carries a local `replace` directive for development
+	# against a sibling libtblx checkout. Package builds must not use it —
+	# strip it and let Go fetch the published libtblx module instead.
+	go mod tidy
+	export CGO_ENABLED=0
+	go build -trimpath -ldflags '-s -w' -o "$pkgname" ./cmd/tblx
+}
+
+check() {
+	cd "$pkgname-$pkgver"
+	go vet ./...
+}
+
+package() {
+	cd "$pkgname-$pkgver"
+	install -Dm755 "$pkgname" "$pkgdir/usr/bin/$pkgname"
+	install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+	install -Dm644 samples/test.csv "$pkgdir/usr/share/doc/$pkgname/samples/test.csv"
+}
