@@ -1,4 +1,4 @@
-**TBLX** · Tablix (tab-lix)
+**TBLX** · Tablix
 
 - [[Home]]
 - [[Spec]]
@@ -11,6 +11,6 @@
 
 Repositories
 
-- [tblx (CLI + wiki)](https://github.com/askmehrun/tblx)
+- [tblx (CLI)](https://github.com/askmehrun/tblx)
 - [libtblx (library)](https://github.com/askmehrun/libtblx)
 - [Releases](https://github.com/askmehrun/tblx/releases)

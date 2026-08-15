@@ -4,9 +4,9 @@
 One codebase, three doors:
 
 ```
-        ┌─────────────── Go  (import the module directly)
-libtblx ┼─────────────── C   (libtblx.so via cgo, -buildmode=c-shared)
-        └─────────────── Python (ctypes bridge; no format logic in Python)
+        ┌─────────────── Go      (import the module directly)
+libtblx ┼─────────────── C       (libtblx.so via cgo, -buildmode=c-shared)
+        └─────────────── Python  (ctypes bridge; no format logic in Python)
 ```
 
 Everything below the C boundary is the *same compiled Go code* the CLI
