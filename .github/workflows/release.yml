@@ -71,7 +71,7 @@ jobs:
   rpm:
     needs: prepare
     runs-on: ubuntu-latest
-    container: fedora:41
+    container: fedora:44
     steps:
       - name: Install build tools
         run: dnf install -y git rpm-build golang
