@@ -1,5 +1,5 @@
-github.com/askmehrun/libtblx v0.2.0 h1:bW29RxVi3pKzOXr8JM1LkyPjTXXBLFOyMi1Pl0AHiE4=
-github.com/askmehrun/libtblx v0.2.0/go.mod h1:muHbCpzqO5VFOCfmhwoN4CkOuKtUH8dfq2YM6PQAxLA=
+github.com/askmehrun/libtblx v0.2.1 h1:EQ+cICZOYKMDu7AgqePWALZV5z/DkdQBH8IDeAU2Wkc=
+github.com/askmehrun/libtblx v0.2.1/go.mod h1:muHbCpzqO5VFOCfmhwoN4CkOuKtUH8dfq2YM6PQAxLA=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
 github.com/charmbracelet/bubbles v1.0.0 h1:12J8/ak/uCZEMQ6KU7pcfwceyjLlWsDLAxB5fXonfvc=

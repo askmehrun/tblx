@@ -64,22 +64,9 @@ type ImportModel struct {
 	height    int
 }
 
-// NewImportModel builds the wizard. Initial types are guessed from the
-// sample rows (int > float > string) so most tables need zero edits.
-func NewImportModel(path string, headers []string, samples [][]string) ImportModel {
-	// Transpose the sample rows into column-major form and let the libtblx
-	// core infer the narrowest type per column (int > float > string).
-	cols := make([][]string, len(headers))
-	for c := range headers {
-		for _, row := range samples {
-			v := ""
-			if c < len(row) {
-				v = row[c]
-			}
-			cols[c] = append(cols[c], v)
-		}
-	}
-	types := tblx.GuessTypes(cols)
+// NewImportModel builds the wizard. Initial types are provided by the
+// caller (typically from tblx.GuessTypes on the full dataset).
+func NewImportModel(path string, headers []string, samples [][]string, types []tblx.DataType) ImportModel {
 	return ImportModel{
 		path:    path,
 		headers: headers,
@@ -90,8 +77,8 @@ func NewImportModel(path string, headers []string, samples [][]string) ImportMod
 
 // RunImportWizard runs the wizard interactively and returns the types the
 // user confirmed. It returns an error if the user aborts (q / esc / ctrl+c).
-func RunImportWizard(path string, headers []string, samples [][]string) ([]tblx.DataType, error) {
-	final, err := tea.NewProgram(NewImportModel(path, headers, samples)).Run()
+func RunImportWizard(path string, headers []string, samples [][]string, guessed []tblx.DataType) ([]tblx.DataType, error) {
+	final, err := tea.NewProgram(NewImportModel(path, headers, samples, guessed)).Run()
 	if err != nil {
 		return nil, fmt.Errorf("tblx: import wizard: %w", err)
 	}

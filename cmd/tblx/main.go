@@ -85,11 +85,23 @@ func cmdImport(path string) error {
 		return err
 	}
 
+	// Transpose for type guessing (scan all rows for correctness) and
+	// use a small sample for the wizard display.
+	cols := make([][]string, len(headers))
+	for c := range headers {
+		for _, row := range rows {
+			v := ""
+			if c < len(row) {
+				v = row[c]
+			}
+			cols[c] = append(cols[c], v)
+		}
+	}
 	samples := rows
 	if len(samples) > 3 {
 		samples = samples[:3]
 	}
-	types, err := tui.RunImportWizard(path, headers, samples)
+	types, err := tui.RunImportWizard(path, headers, samples, tblx.GuessTypes(cols))
 	if err != nil {
 		return err
 	}
