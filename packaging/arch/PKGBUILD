@@ -11,7 +11,7 @@ pkgrel=1
 pkgdesc='Tablix — binary columnar file format (TBLX) and terminal CLI: CSV in, seekable columns out'
 arch=('x86_64' 'aarch64')
 url='https://github.com/askmehrun/tblx'
-license=('MIT')
+license=('AGPL-3.0-or-later')
 depends=('glibc')
 makedepends=('go>=1.21')
 source=("$url/archive/refs/tags/v$pkgver/$pkgname-$pkgver.tar.gz")

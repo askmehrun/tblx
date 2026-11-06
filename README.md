@@ -124,4 +124,4 @@ The file opens with `54 42 4C 58` ("TBLX"), then `row_count = 5`,
 
 ## License
 
-MIT
+AGPL v3

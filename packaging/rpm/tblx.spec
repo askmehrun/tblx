@@ -13,7 +13,7 @@ Version:        1.0.0
 Release:        1%{?dist}
 Summary:        Tablix — binary columnar file format (TBLX) and terminal CLI
 
-License:        MIT
+License:        AGPL-3.0-or-later
 URL:            https://github.com/askmehrun/tblx
 Source0:        %{url}/archive/refs/tags/v%{version}/%{name}-%{version}.tar.gz
 
