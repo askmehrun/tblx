@@ -3,7 +3,7 @@ module github.com/askmehrun/tblx
 go 1.26
 
 require (
-	github.com/askmehrun/libtblx v0.2.1
+	github.com/askmehrun/libtblx v0.2.2
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0

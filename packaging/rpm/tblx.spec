@@ -4,12 +4,12 @@
 #   cd packaging/rpm
 #   rpmbuild -bb tblx.spec
 # Install:
-#   sudo dnf install ~/rpmbuild/RPMS/$(uname -m)/tblx-1.0.0-1.$(uname -m).rpm
+#   sudo dnf install ~/rpmbuild/RPMS/$(uname -m)/tblx-1.0.2-1.$(uname -m).rpm
 
 %global debug_package %{nil}
 
 Name:           tblx
-Version:        1.0.0
+Version:        1.0.2
 Release:        1%{?dist}
 Summary:        Tablix — binary columnar file format (TBLX) and terminal CLI
 
@@ -52,6 +52,7 @@ go vet ./...
 %{_docdir}/%{name}/README.md
 
 %changelog
-* Sun Jan 04 2026 Tablix maintainers <tblx@example.com> - 1.0.0-1
+* Mon Nov 06 2026 Mehran Askarnezhad <mehrunaskrnzhad@gmail.com> - 1.0.2-1
+- Align packaging with upstream v1.0.2: go toolchain >=1.26, libtblx v0.2.2.
 - Initial package: TBLX format (via libtblx), tblx CLI with
   import/view/info/export, interactive Bubble Tea UIs.

@@ -4,16 +4,16 @@
 #   cd packaging/arch
 #   makepkg -si
 
-# Maintainer: Tablix maintainers <tblx@example.com>
+# Maintainer: Mehran Askarnezhad <mehrunaskrnzhad@gmail.com>
 pkgname=tblx
-pkgver=1.0.0
+pkgver=1.0.2
 pkgrel=1
 pkgdesc='Tablix — binary columnar file format (TBLX) and terminal CLI: CSV in, seekable columns out'
 arch=('x86_64' 'aarch64')
 url='https://github.com/askmehrun/tblx'
 license=('AGPL-3.0-or-later')
 depends=('glibc')
-makedepends=('go>=1.21')
+makedepends=('go>=1.26')
 source=("$url/archive/refs/tags/v$pkgver/$pkgname-$pkgver.tar.gz")
 sha256sums=('SKIP')
 
