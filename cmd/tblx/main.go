@@ -157,28 +157,15 @@ func cmdInfo(path string) error {
 	return nil
 }
 
-// cmdExport decodes the whole table and writes it back out as CSV, to
-// out if given, otherwise to stdout.
+// cmdExport streams the table back out as CSV, one row at a time, so it
+// never has to hold the whole table in memory. Writes to out if given,
+// otherwise to stdout.
 func cmdExport(path, out string) error {
 	r, err := tblx.NewReader(path)
 	if err != nil {
 		return err
 	}
 	defer r.Close()
-
-	data, err := r.ReadAll()
-	if err != nil {
-		return err
-	}
-	records := make([][]string, 0, len(data)+1)
-	records = append(records, r.ColNames)
-	for _, row := range data {
-		rec := make([]string, r.NCols)
-		for ci, name := range r.ColNames {
-			rec[ci] = tblx.FormatValue(row[name])
-		}
-		records = append(records, rec)
-	}
 
 	var w io.Writer = os.Stdout
 	if out != "" {
@@ -191,7 +178,27 @@ func cmdExport(path, out string) error {
 	}
 
 	cw := csv.NewWriter(w)
-	if err := cw.WriteAll(records); err != nil {
+	if err := cw.Write(r.ColNames); err != nil {
+		return fmt.Errorf("write csv: %w", err)
+	}
+
+	it := r.Rows()
+	defer it.Close()
+	for it.Next() {
+		row := it.Row()
+		rec := make([]string, r.NCols)
+		for ci, name := range r.ColNames {
+			rec[ci] = tblx.FormatValue(row[name])
+		}
+		if err := cw.Write(rec); err != nil {
+			return fmt.Errorf("write csv: %w", err)
+		}
+	}
+	if err := it.Err(); err != nil {
+		return err
+	}
+	cw.Flush()
+	if err := cw.Error(); err != nil {
 		return fmt.Errorf("write csv: %w", err)
 	}
 	if out != "" {

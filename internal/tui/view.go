@@ -25,38 +25,48 @@ var (
 	viewStatus = lipgloss.NewStyle().Foreground(colDim)
 )
 
-// ViewModel renders a .tblx file as a scrollable table with a frozen,
-// pan-synced header row and a sticky row-number gutter.
+// ViewModel renders a .tblx file with lazy, windowed row decoding: only the
+// rows visible in the viewport are ever decoded, so viewing a table with
+// millions of rows never buffers the whole table in memory.
 type ViewModel struct {
 	path     string
 	colNames []string
 	colTypes []tblx.DataType
 	nRows    int
-	header   string   // full-width padded header line
-	body     []string // full-width padded data lines
 	widths   []int
 	gutterW  int
 
-	viewport viewport.Model
-	xOff     int
-	contentW int
-	width    int
-	height   int
-	ready    bool
+	reader   *tblx.Reader
+	rows     [][]string // decoded rows currently in the viewport
+	rowStart uint64     // index of rows[0]
+	itRow    uint64     // next row index the iterator will produce
+	itReady  bool
+	it       tblx.RowIterator
+	err      error
+
+	y          int // absolute index of the first visible row
+	xOff       int
+	contentW   int
+	width      int
+	height     int
+	ready      bool
+	viewport   viewport.Model
 }
 
-// NewViewModel pre-renders the table once; scrolling and panning then
-// never touch the decoded data again.
-func NewViewModel(path string, colNames []string, colTypes []tblx.DataType, rows [][]string) ViewModel {
-	nCols := len(colNames)
-	widths := make([]int, nCols)
-	for c := range colNames {
-		widths[c] = utf8.RuneCountInString(colNames[c])
+// measureWidths streams every row once to find the widest cell per column
+// so the table can be aligned. It keeps only nCols widths in memory.
+func measureWidths(r *tblx.Reader) []int {
+	widths := make([]int, r.NCols)
+	for c := range r.ColNames {
+		widths[c] = utf8.RuneCountInString(r.ColNames[c])
 	}
-	for _, row := range rows {
-		for c, cell := range row {
-			if c < nCols && utf8.RuneCountInString(cell) > widths[c] {
-				widths[c] = utf8.RuneCountInString(cell)
+	it := r.Rows()
+	defer it.Close()
+	for it.Next() {
+		row := it.Row()
+		for c, name := range r.ColNames {
+			if w := utf8.RuneCountInString(tblx.FormatValue(row[name])); w > widths[c] {
+				widths[c] = w
 			}
 		}
 	}
@@ -65,34 +75,26 @@ func NewViewModel(path string, colNames []string, colTypes []tblx.DataType, rows
 			widths[c] = 30 // keep absurd cells readable
 		}
 	}
+	return widths
+}
 
-	contentW := 0
-	for c, w := range widths {
-		contentW += w
-		if c < nCols-1 {
-			contentW += 2
-		}
+// newViewModel opens path and measures column widths. Row data is decoded
+// lazily as the user scrolls (see ensureWindow), so the whole table is
+// never held in memory.
+func newViewModel(path string) (*ViewModel, error) {
+	r, err := tblx.NewReader(path)
+	if err != nil {
+		return nil, err
 	}
-
-	m := ViewModel{
+	return &ViewModel{
 		path:     path,
-		colNames: colNames,
-		colTypes: colTypes,
-		nRows:    len(rows),
-		widths:   widths,
-		contentW: contentW,
-		gutterW:  len(strconv.Itoa(len(rows))) + 2,
-	}
-	if m.gutterW < 4 {
-		m.gutterW = 4
-	}
-
-	m.header = m.renderLine(colNames)
-	m.body = make([]string, len(rows))
-	for ri, row := range rows {
-		m.body[ri] = m.renderLine(row)
-	}
-	return m
+		reader:   r,
+		colNames: r.ColNames,
+		colTypes: r.ColTypes,
+		nRows:    int(r.NRows),
+		widths:   measureWidths(r),
+		gutterW:  len(strconv.Itoa(int(r.NRows))) + 2,
+	}, nil
 }
 
 // renderLine pads every cell to its column width and joins with 2 spaces.
@@ -134,13 +136,85 @@ func (m ViewModel) sliceLine(s string) string {
 	return line + strings.Repeat(" ", vw-utf8.RuneCountInString(line))
 }
 
-// refreshContent re-renders the viewport body for the current pan offset.
-func (m *ViewModel) refreshContent() {
-	sliced := make([]string, len(m.body))
-	for i, line := range m.body {
-		sliced[i] = m.sliceLine(line)
+// ensureWindow decodes exactly the rows inside the viewport. It is cheap
+// when the scroll position is unchanged: a single streaming iterator is
+// advanced forward as the user scrolls down and only restarted when the
+// user scrolls past rows that were already decoded away. Peak memory is
+// O(viewport height) plus the column widths, independent of row count.
+func (m *ViewModel) ensureWindow() {
+	if m.err != nil || !m.ready {
+		return
 	}
-	m.viewport.SetContent(strings.Join(sliced, "\n"))
+	start := m.y
+	if start < 0 {
+		start = 0
+	}
+	end := start + m.viewport.Height
+	if end > m.nRows {
+		end = m.nRows
+	}
+	if start >= end {
+		m.rows = nil
+		return
+	}
+
+	// Drop rows that scrolled out of view at the top.
+	for uint64(start) > m.rowStart && len(m.rows) > 0 {
+		m.rows = m.rows[1:]
+		m.rowStart++
+	}
+
+	// Restart the iterator only when the window needs rows we no longer
+	// hold (scrolling up) or rows we have not yet reached (scrolling past
+	// the end of what we decoded).
+	if !m.itReady || m.itRow < uint64(start) || uint64(start) < m.rowStart {
+		if m.itReady {
+			m.it.Close()
+		}
+		m.it = m.reader.Rows()
+		m.rows = nil
+		m.rowStart = uint64(start)
+		m.itRow = uint64(start)
+		m.itReady = true
+	}
+
+	for m.itRow < uint64(start) {
+		if !m.it.Next() {
+			break
+		}
+		m.it.Row()
+		m.itRow++
+	}
+	if err := m.it.Err(); err != nil {
+		m.err = err
+		return
+	}
+
+	for m.itRow < uint64(end) {
+		if !m.it.Next() {
+			break
+		}
+		row := m.it.Row()
+		cells := make([]string, m.reader.NCols)
+		for ci, name := range m.reader.ColNames {
+			cells[ci] = tblx.FormatValue(row[name])
+		}
+		m.rows = append(m.rows, cells)
+		m.itRow++
+	}
+}
+
+// refreshContent renders the current viewport window into the viewport.
+func (m *ViewModel) refreshContent() {
+	var content string
+	if len(m.rows) > 0 {
+		lines := make([]string, len(m.rows))
+		for i, cells := range m.rows {
+			lines[i] = m.sliceLine(m.renderLine(cells))
+		}
+		content = strings.Join(lines, "\n")
+	}
+	m.viewport.SetContent(content)
 }
 
 func (m *ViewModel) clampPan() {
@@ -156,28 +230,22 @@ func (m *ViewModel) clampPan() {
 	}
 }
 
-// RunViewer opens path, decodes it and runs the full-screen viewer.
+// RunViewer opens path and runs the full-screen viewer. Rows are decoded
+// lazily as the user scrolls, so even very large files stay light in memory.
 func RunViewer(path string) error {
-	r, err := tblx.NewReader(path)
+	m, err := newViewModel(path)
 	if err != nil {
 		return err
 	}
-	defer r.Close()
-
-	data, err := r.ReadAll()
-	if err != nil {
-		return err
-	}
-	rows := make([][]string, len(data))
-	for ri, row := range data {
-		cells := make([]string, r.NCols)
-		for ci, name := range r.ColNames {
-			cells[ci] = tblx.FormatValue(row[name])
+	defer func() {
+		if m.itReady {
+			m.it.Close()
 		}
-		rows[ri] = cells
-	}
+		if m.reader != nil {
+			m.reader.Close()
+		}
+	}()
 
-	m := NewViewModel(path, r.ColNames, r.ColTypes, rows)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("tblx: viewer: %w", err)
@@ -189,7 +257,9 @@ func RunViewer(path string) error {
 func (m ViewModel) Init() tea.Cmd { return nil }
 
 // Update implements tea.Model: q/esc quits, j/k and arrows scroll,
-// g/G jump to the edges, and left/right pan horizontally.
+// g/G jump to the edges, left/right pan horizontally, and the mouse wheel
+// scrolls. Vertical scrolling advances a single streaming iterator rather
+// than decoding the whole table up front.
 func (m ViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -204,13 +274,13 @@ func (m ViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if !m.ready {
 			m.viewport = viewport.New(vw, vh)
-			m.viewport.MouseWheelEnabled = true
 			m.ready = true
 		} else {
 			m.viewport.Width = vw
 			m.viewport.Height = vh
 		}
 		m.clampPan()
+		m.ensureWindow()
 		m.refreshContent()
 
 	case tea.KeyMsg:
@@ -218,19 +288,32 @@ func (m ViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "q", "esc":
 			return m, tea.Quit
 		case "up", "k":
-			m.viewport.LineUp(1)
+			m.y--
+			m.ensureWindow()
+			m.refreshContent()
 		case "down", "j":
-			m.viewport.LineDown(1)
+			m.y++
+			m.ensureWindow()
+			m.refreshContent()
 		case "pgup":
-			// HalfPageUp/HalfPageDown only exist in newer bubbles;
-			// LineUp/LineDown are available in every release.
-			m.viewport.LineUp(m.viewport.Height / 2)
+			m.y -= m.viewport.Height / 2
+			m.ensureWindow()
+			m.refreshContent()
 		case "pgdown":
-			m.viewport.LineDown(m.viewport.Height / 2)
+			m.y += m.viewport.Height / 2
+			m.ensureWindow()
+			m.refreshContent()
 		case "g":
-			m.viewport.GotoTop()
+			m.y = 0
+			m.ensureWindow()
+			m.refreshContent()
 		case "G":
-			m.viewport.GotoBottom()
+			m.y = m.nRows - m.viewport.Height
+			if m.y < 0 {
+				m.y = 0
+			}
+			m.ensureWindow()
+			m.refreshContent()
 		case "left", "h":
 			m.xOff -= 8
 			m.clampPan()
@@ -238,6 +321,18 @@ func (m ViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "right", "l":
 			m.xOff += 8
 			m.clampPan()
+			m.refreshContent()
+		}
+
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.y--
+			m.ensureWindow()
+			m.refreshContent()
+		case tea.MouseButtonWheelDown:
+			m.y++
+			m.ensureWindow()
 			m.refreshContent()
 		}
 	}
@@ -250,18 +345,19 @@ func (m ViewModel) View() string {
 	if !m.ready {
 		return "opening…"
 	}
+	m.ensureWindow()
 
 	title := viewTitle.Render(" tblx view ") +
 		viewHead.Render(" "+m.path+" ") +
 		viewStatus.Render(fmt.Sprintf(" %d cols · %d rows · TBLX", len(m.colNames), m.nRows))
 
-	headLine := viewHead.Render(m.sliceLine(m.header))
+	headLine := viewHead.Render(m.sliceLine(m.renderLine(m.colNames)))
 	sep := viewSep.Render(strings.Repeat("─", m.width))
 
-	// Sticky gutter, aligned with the viewport's current vertical offset.
+	// Sticky gutter, aligned with the current vertical offset.
 	var gut strings.Builder
 	for i := 0; i < m.viewport.Height; i++ {
-		n := m.viewport.YOffset + i + 1
+		n := m.y + i + 1
 		cell := ""
 		if n <= m.nRows {
 			cell = strconv.Itoa(n)
@@ -273,8 +369,8 @@ func (m ViewModel) View() string {
 	}
 	body := lipgloss.JoinHorizontal(lipgloss.Top, gut.String(), m.viewport.View())
 
-	lo := m.viewport.YOffset + 1
-	hi := m.viewport.YOffset + m.viewport.Height
+	lo := m.y + 1
+	hi := m.y + m.viewport.Height
 	if hi > m.nRows {
 		hi = m.nRows
 	}
