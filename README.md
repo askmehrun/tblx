@@ -1,5 +1,9 @@
 # tblx — binary columnar files for the terminal
 
+![Build](https://github.com/askmehrun/tblx/actions/workflows/ci.yml/badge.svg)
+![Release](https://img.shields.io/github/v/release/askmehrun/tblx)
+![Go](https://img.shields.io/badge/go-1.26-blue)
+
 `tblx` is the CLI + TUI of **tblx** (called **Tablix**, pronounced
 *tab-lix*): it converts CSV → TBLX through an interactive type wizard,
 browses `.tblx` files in the terminal, prints metadata, and exports back
